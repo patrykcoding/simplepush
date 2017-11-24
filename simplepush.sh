@@ -64,6 +64,61 @@ passwd=$passwd"
 	res=`openssl aes-256-cbc -a -salt -out $config_file <<< "$config"`
 }
 
+delete_from_config() {
+	res=`openssl aes-256-cbc -d -a -in $config_file`
+	if [ "$?" -ne 0 ]; then
+		exit
+	fi
+
+	params=()
+	while read -r line; do
+		params+=("$line")
+	done <<< "$res"
+
+	num=${params[0]} # number of keys stored
+
+	declare -A values
+	key_line=1 # line on which the first key is stored
+	i=1
+	while [ $i -le $num ]; do
+		echo -n "$i) "
+		echo "${params[$key_line]}" | awk -F "key=" "{print $2}"
+		values+=( [$i]=$key_line ) # store line of the key
+		((key_line+=3))
+		((i++))
+	done
+
+	echo -n "Pick a key to delete: "
+	while true; do
+		read picked_key
+		if [ $picked_key -lt 1 ] || [ $picked_key -gt $num ]; then
+			echo -n "Input a number between 1 and $num: "
+		else
+			break
+		fi
+	done
+
+	config=""
+	line_num="${values[$picked_key]}"
+	i=0
+	while read -r line; do
+		if [[ $i -ge $line_num ]] && [[ $i -le $line_num+2 ]]; then
+			((i++))
+			continue
+		fi
+		if [ $i -eq 0 ]; then
+			((line--))
+		else
+			config+="
+"
+		fi
+		config+="$line"
+		((i++))
+	done <<< "$res"
+
+	res=`openssl aes-256-cbc -a -salt -out $config_file <<< "$config"`
+}
+
 decrypt_config() {
 	res=`openssl aes-256-cbc -d -a -in $config_file`
 	if [ "$?" -ne 0 ]; then
@@ -152,8 +207,18 @@ if [ "$1" = "setup" ] && [ "$#" -gt 1 ]; then
 fi
 
 if [ "$1" = "setup" ]; then
-	add_to_config
-	exit 0
+	echo "a) Add new key"
+	echo "d) Delete a key"
+	while true; do
+		read ans
+		if [ "$ans" = "a" ]; then
+			add_to_config
+			exit 0
+		elif [ "$ans" = "d" ]; then
+		       delete_from_config
+		       exit 0
+	       fi
+	done
 fi
 
 if [ -z "${message}" ]; then
